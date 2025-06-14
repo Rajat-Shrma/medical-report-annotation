@@ -5,8 +5,8 @@ from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
 
 # Azure credentials
-endpoint = secret['ENDPOINT']
-key = secret["KEY"]
+endpoint = st.secrets['ENDPOINT']
+key = st.secrets["KEY"]
 client = DocumentAnalysisClient(endpoint=endpoint, credential=AzureKeyCredential(key))
 
 # Initialize session state for annotations
