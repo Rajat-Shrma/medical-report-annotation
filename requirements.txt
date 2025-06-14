@@ -1,0 +1,4 @@
+azure-ai-formrecognizer
+azure-core
+streamlit
+pandas
