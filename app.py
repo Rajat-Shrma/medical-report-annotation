@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import io
+import time
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
 
@@ -9,10 +9,14 @@ endpoint = st.secrets['ENDPOINT']
 key = st.secrets["KEY"]
 client = DocumentAnalysisClient(endpoint=endpoint, credential=AzureKeyCredential(key))
 
-# Initialize session state for annotations
+# Initialize session state
 if "annotations" not in st.session_state:
     st.session_state.annotations = []
 
+if "processed_images" not in st.session_state:
+    st.session_state.processed_images = set()
+
+# OCR extraction
 def extract_annotations(image_bytes):
     poller = client.begin_analyze_document("prebuilt-document", document=image_bytes)
     result = poller.result()
@@ -48,48 +52,42 @@ def extract_annotations(image_bytes):
 
     return kv_pairs, table_texts, other_details
 
-# App UI
-st.title("🧾 Medical Report Annotation Tool")
+# UI
+st.title("🧾 Medical Report Annotation Tool (5s rate-limit safe)")
 
-uploaded_file = st.file_uploader("Upload a medical report image", type=["png", "jpg", "jpeg"])
+uploaded_files = st.file_uploader(
+    "Upload medical report images (multiple)", type=["png", "jpg", "jpeg"], accept_multiple_files=True
+)
 
-if uploaded_file:
-    image_name = uploaded_file.name
-    already_processed = any(rec["image"] == image_name for rec in st.session_state.annotations)
+if uploaded_files:
+    st.info("Processing will begin with 5-second delay between each image to avoid hitting the API rate limit.")
 
-    if already_processed:
-        st.warning("⚠️ This image has already been annotated in this session.")
-    else:
-        with st.spinner("🔍 Extracting annotations..."):
-            kvs, tables, others = extract_annotations(uploaded_file)
+    for file in uploaded_files:
+        if file.name in st.session_state.processed_images:
+            st.write(f"✅ Already processed: {file.name}")
+            continue
 
-        new_record = {
-            "image": image_name,
-            "key_value_pair": "\n".join(sorted(kvs)),
-            "table": "\n".join(tables),
-            "other_details": "\n".join(others)
-        }
+        with st.spinner(f"🔍 Processing {file.name}..."):
+            kvs, tables, others = extract_annotations(file)
 
-        st.session_state.annotations.append(new_record)
+            new_record = {
+                "image": file.name,
+                "key_value_pair": "\n".join(sorted(kvs)),
+                "table": "\n".join(tables),
+                "other_details": "\n".join(others)
+            }
 
-        st.success("✅ Annotation complete!")
+            st.session_state.annotations.append(new_record)
+            st.session_state.processed_images.add(file.name)
 
-        st.subheader("🔍 Extracted Data:")
-        st.text_area("Key-Value Pairs", new_record["key_value_pair"], height=150)
-        st.text_area("Tables", new_record["table"], height=150)
-        st.text_area("Other Details", new_record["other_details"], height=150)
+            st.success(f"✅ Done: {file.name}")
+            time.sleep(5)  # Respect rate limit
 
-# Show all annotations in session
+# Show all annotations
 if st.session_state.annotations:
     st.subheader("📋 All Annotated Records in this Session")
     df = pd.DataFrame(st.session_state.annotations)
     st.dataframe(df)
 
-    # CSV download
     csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Download CSV",
-        data=csv,
-        file_name="annotated_reports.csv",
-        mime="text/csv"
-    )
+    st.download_button("📥 Download CSV", data=csv, file_name="annotated_reports.csv", mime="text/csv")
